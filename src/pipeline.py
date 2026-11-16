@@ -649,7 +649,6 @@ class EngineeringRAG:
             return {"answer": "Access denied: Financial data is restricted.",
                     "refused": True, "sources": [], "confidence": 0.0}
 
-        # ALLOW ACCESS IF TEAMS ARE EMPTY (Fallback)
         allowed = [i for i, c in enumerate(self.chunks) if self.acl.visible(c, user)]
         if not allowed:
             return {"answer": "Access denied.", "refused": True, "sources": [], "confidence": 0.0}
@@ -927,9 +926,11 @@ class EngineeringRAG:
         fallback_cache, seen_fallbacks = {}, set()
 
         for r in unique_results:
-            if "image_path" in r["doc"] and Path(r["doc"]["image_path"]).exists():
-                print(f"[VQA] Analyzing image: {r['doc']['image_path']}")
-                raw_answer = self._answer_with_image(r["doc"]["image_path"], query)
+            # FIX: Replace backslashes for Linux compatibility
+            img_path_str = str(r["doc"].get("image_path", "")).replace("\\", "/")
+            if "image_path" in r["doc"] and Path(img_path_str).exists():
+                print(f"[VQA] Analyzing image: {img_path_str}")
+                raw_answer = self._answer_with_image(img_path_str, query)
                 analysis, is_unknown = self._clean_vqa_answer(raw_answer)
 
                 block = [analysis]
@@ -950,7 +951,7 @@ class EngineeringRAG:
                 sources.append({
                     "doc_id": r["doc"]["doc_id"],
                     "title": r["doc"].get("text", r["doc"].get("section_header", "Unknown")),
-                    "image_path": r["doc"]["image_path"],
+                    "image_path": img_path_str,
                 })
             else:
                 txt = r["text"].strip()

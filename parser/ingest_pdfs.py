@@ -39,7 +39,6 @@ FIGURE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
 def extract_markdown_text(md_obj) -> str:
     if isinstance(md_obj, str):
         return md_obj
@@ -48,7 +47,6 @@ def extract_markdown_text(md_obj) -> str:
     if hasattr(md_obj, "text"):
         return md_obj.text
     return str(md_obj)
-
 
 def extract_images_and_captions(pdf_path, pdf_id):
     print(f"     [PyMuPDF] Extracting images & binding captions for {pdf_path.name}...")
@@ -128,7 +126,8 @@ def extract_images_and_captions(pdf_path, pdf_id):
                     "chunk_id": f"{pdf_id}_fig_{fig_num}",
                     "section_header": f"[Visual Diagram: {img_filename}]",
                     "text": chunk_text,
-                    "image_path": str(img_path.relative_to(PROJECT_ROOT)),
+                    # FIX: Use posix path to ensure forward slashes for Linux
+                    "image_path": img_path.relative_to(PROJECT_ROOT).as_posix(),
                     "figure_number": fig_num,
                     "doc_id": pdf_id,
                     "team": "structures",
@@ -151,7 +150,8 @@ def extract_images_and_captions(pdf_path, pdf_id):
                     "chunk_id": f"{pdf_id}_p{page_num+1}_unbound_{idx}",
                     "section_header": f"[Visual Diagram: {img_filename}]",
                     "text": f"Engineering diagram from page {page_num+1}. (caption not found -- flagged for QA)",
-                    "image_path": str(img_path.relative_to(PROJECT_ROOT)),
+                    # FIX: Use posix path to ensure forward slashes for Linux
+                    "image_path": img_path.relative_to(PROJECT_ROOT).as_posix(),
                     "figure_number": None,
                     "doc_id": pdf_id,
                     "team": "structures",
@@ -168,7 +168,6 @@ def extract_images_and_captions(pdf_path, pdf_id):
     print(f"     [PyMuPDF] Extracted {fig_count} bound figures "
           f"({len(img_chunks) - fig_count} unbound, flagged for QA).")
     return img_chunks
-
 
 async def parse_pdf(client, pdf_path, existing_chunks, conn):
     print(f"  -> Parsing {pdf_path.name} with LlamaParse...")
@@ -214,7 +213,7 @@ async def parse_pdf(client, pdf_path, existing_chunks, conn):
                     df["doc_id"] = pdf_id
                     df.to_sql(table_name, conn, if_exists="replace", index=False)
                     
-                    # NEW: Convert table to Markdown format for perfect UI rendering
+                    # Convert table to Markdown format for perfect UI rendering
                     drop_cols = ["doc_id"] if "doc_id" in df.columns else []
                     df_clean = df.drop(columns=drop_cols).fillna("")
                     
@@ -281,11 +280,7 @@ async def parse_pdf(client, pdf_path, existing_chunks, conn):
 
     return existing_chunks
 
-
 async def ingest_files(pdf_paths):
-    """
-    Ingest a specific list of PDF files into the corpus.
-    """
     client = AsyncLlamaCloud(
         api_key=LLAMA_CLOUD_API_KEY,
         base_url="https://api.cloud.llamaindex.ai",
@@ -314,12 +309,10 @@ async def ingest_files(pdf_paths):
 
     return processed, len(existing_chunks)
 
-
 async def main():
     pdfs = list(PDF_FOLDER.glob("*.pdf"))
     n, total = await ingest_files(pdfs)
     print(f"\n[SUCCESS] Ingested {n} PDF(s). Total chunks in database: {total}")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

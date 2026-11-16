@@ -218,8 +218,9 @@ def _render_assistant(m: dict) -> None:
     sources = m.get("sources", [])
     for s in sources:
         p = s.get("image_path")
-        if p and os.path.exists(p):
-            st.image(p, caption=f"Source: {s.get('title', '')}")
+        # FIX: Replace backslashes for Linux compatibility
+        if p and os.path.exists(str(p).replace("\\", "/")):
+            st.image(str(p).replace("\\", "/"), caption=f"Source: {s.get('title', '')}")
 
     if sources:
         with st.expander(f"📚 Traceable sources ({len(sources)})"):
