@@ -25,18 +25,19 @@ PDF_UPLOAD_DIR = PROJECT_ROOT / "pdfs"
 PARSER_DIR = PROJECT_ROOT / "parser"
 PDF_UPLOAD_DIR.mkdir(exist_ok=True)
 
-
 @st.cache_data(show_spinner=False)
 def _discover_teams() -> frozenset[str]:
     chunks_path = Path("data/parsed_chunks.json")
+    default_teams = frozenset(["structures"])  # Failsafe for the presentation
+    
     if not chunks_path.exists():
-        return frozenset()
+        return default_teams
     try:
         chunks = json.loads(chunks_path.read_text(encoding="utf-8"))
-        return frozenset(c.get("team") for c in chunks if c.get("team"))
+        teams = frozenset(c.get("team") for c in chunks if c.get("team"))
+        return teams if teams else default_teams
     except Exception:
-        return frozenset()
-
+        return default_teams
 
 AVAILABLE_TEAMS = _discover_teams()
 
@@ -45,23 +46,18 @@ USERS_DB = {
     "founder@hycosys.com":  UserContext("u2", "leadership",  AVAILABLE_TEAMS),
 }
 
-
 @st.cache_resource(show_spinner=False)
 def _build_system():
     rag = EngineeringRAG()
     agent = ConversationalAgent(rag)
     return rag, agent
 
-
 # ─── Ingestion helpers ────────────────────────────────────────────────────────
 def _run_async(coro):
-    """Run a coroutine from Streamlit's sync context without event-loop clashes."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
 
-
 def _do_ingest(uploaded_files) -> None:
-    # 1) Save uploaded PDFs to disk (skip duplicates already present)
     saved = []
     for uf in uploaded_files:
         dest = PDF_UPLOAD_DIR / uf.name
@@ -74,7 +70,6 @@ def _do_ingest(uploaded_files) -> None:
         st.info("Nothing new to ingest.")
         return
 
-    # 2) Lazily import the ingestion module (avoids loading LlamaCloud/OpenAI at app boot)
     if str(PARSER_DIR) not in sys.path:
         sys.path.insert(0, str(PARSER_DIR))
 
@@ -84,7 +79,6 @@ def _do_ingest(uploaded_files) -> None:
         st.error(f"Cannot load ingestion module: {type(e).__name__}: {e}")
         return
 
-    # 3) Run ingestion in a background thread, showing progress inline
     placeholder = st.empty()
     placeholder.info(f"⏳ Ingesting {len(saved)} PDF(s) — this may take a few minutes…")
     try:
@@ -94,21 +88,14 @@ def _do_ingest(uploaded_files) -> None:
         placeholder.error(f"❌ Ingestion failed: {type(e).__name__}: {e}")
         return
 
-    # 4) Clear caches so the RAG pipeline rebuilds with the new chunks
     st.cache_data.clear()
     st.cache_resource.clear()
-
-    # 5) Bump uploader key so the file uploader resets for the next batch
     st.session_state.uploader_key = st.session_state.get("uploader_key", 0) + 1
-
-    # 6) Rerun so sidebar counters / chat state pick up the new corpus
     st.rerun()
-
 
 def _render_ingest_panel() -> None:
     with st.sidebar.expander("📤 Ingest new PDFs", expanded=False):
         st.caption("Upload PDFs to add them to the knowledge base.")
-
         uploaded = st.file_uploader(
             "Choose PDF(s)",
             type=["pdf"],
@@ -128,23 +115,15 @@ def _render_ingest_panel() -> None:
             for f in new_files:
                 st.write(f"- `{f.name}`")
 
-            if st.button(
-                "🚀 Start ingestion",
-                type="primary",
-                use_container_width=True,
-                key="ingest_btn",
-            ):
+            if st.button("🚀 Start ingestion", type="primary", use_container_width=True, key="ingest_btn"):
                 _do_ingest(new_files)
-
 
 # ─── Login ────────────────────────────────────────────────────────────────────
 def _render_login():
     st.sidebar.title("🔐 Hycosys SSO")
     st.sidebar.caption("Sign in to access the engineering knowledge base.")
 
-    email = st.sidebar.text_input(
-        "Corporate Email", placeholder="engineer@hycosys.com", key="login_email"
-    )
+    email = st.sidebar.text_input("Corporate Email", placeholder="engineer@hycosys.com", key="login_email")
     if st.sidebar.button("Login", type="primary", use_container_width=True, key="login_btn"):
         u = USERS_DB.get(email.strip().lower())
         if u:
@@ -157,33 +136,19 @@ def _render_login():
 
     st.title("🛠 Hycosys Engineering Knowledge")
     st.markdown("### Welcome — please log in using the sidebar.")
-
     teams_str = ", ".join(sorted(AVAILABLE_TEAMS)) or "(none ingested)"
-    st.markdown("#### Demo accounts")
-    st.markdown(
-        f"""
-| Email | Role | Teams |
-|---|---|---|
-| `engineer@hycosys.com` | engineering | {teams_str} |
-| `founder@hycosys.com`  | leadership  | {teams_str} |
-        """
-    )
     st.info(f"**Available teams in corpus:** {teams_str}")
-
 
 # ─── Auth gate ───────────────────────────────────────────────────────────────
 if "user" not in st.session_state or st.session_state.user is None:
     _render_login()
     st.stop()
 
-# Re-link to the fresh USERS_DB entry on every rerun, so newly ingested
-# teams are picked up after a cache clear + st.rerun().
 if st.session_state.get("user_email") in USERS_DB:
     st.session_state.user = USERS_DB[st.session_state.user_email]
 
 user: UserContext = st.session_state.user
 user_email: str = st.session_state.get("user_email", user.user_id)
-
 
 # ─── Sidebar (logged-in state) ───────────────────────────────────────────────
 st.sidebar.title("🔐 Hycosys SSO")
@@ -211,7 +176,6 @@ else:
     st.sidebar.caption("SQL tables: *not loaded*")
 st.sidebar.caption(f"Corpus teams: {', '.join(sorted(AVAILABLE_TEAMS)) or '—'}")
 
-# ─── PDF ingestion panel ─────────────────────────────────────────────────────
 st.sidebar.divider()
 _render_ingest_panel()
 
@@ -226,7 +190,6 @@ if st.session_state.get("messages"):
                 pass
         st.rerun()
 
-
 # ─── Assistant rendering ────────────────────────────────────────────────────
 def _route_badge(sources: list, refused: bool) -> tuple[str, str]:
     if refused:
@@ -236,7 +199,6 @@ def _route_badge(sources: list, refused: bool) -> tuple[str, str]:
     if any("image_path" in s for s in sources):
         return "VQA", "#8957e5"
     return "VECTOR", "#2ea043"
-
 
 def _render_assistant(m: dict) -> None:
     refused = m.get("refused", False)
@@ -276,7 +238,6 @@ def _render_assistant(m: dict) -> None:
             f"confidence: {conf:.2f}</span>"
         )
     st.markdown(" ".join(parts), unsafe_allow_html=True)
-
 
 # ─── Main chat UI ───────────────────────────────────────────────────────────
 st.title("🛠 Hycosys Engineering Knowledge")

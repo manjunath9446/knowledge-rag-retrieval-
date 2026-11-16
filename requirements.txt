@@ -1,7 +1,7 @@
 # ─── Core App ───
 streamlit>=1.30
 python-dotenv>=1.0.0
-
+config
 # ─── Retrieval & Embeddings (pipeline.py) ───
 rank_bm25>=0.2.2
 scikit-learn>=1.3

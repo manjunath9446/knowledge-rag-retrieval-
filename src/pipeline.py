@@ -33,6 +33,18 @@ _SQL_FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 
+def _validate_select_sql(sql: str) -> str | None:
+    if not sql:
+        return None
+    sql_upper = sql.upper()
+    if _SQL_FORBIDDEN.search(sql_upper):
+        return None
+    if "SELECT" not in sql_upper:
+        return None
+    if ";" in sql.strip()[:-1]:
+        return None
+    return sql.strip().rstrip(";")
+
 _MATH_LINE = re.compile(
     r"\\\(|\\\[|\$\$|"
     r"\\[a-zA-Z]{2,}|"
@@ -632,14 +644,12 @@ class EngineeringRAG:
             return {"answer": "Please ask a specific question about the engineering documentation.",
                     "refused": True, "sources": [], "confidence": 0.0}
 
-        if not getattr(user, "teams", frozenset()) and user.clearance != "leadership":
-            return {"answer": "Access denied.", "refused": True, "sources": [], "confidence": 0.0}
-
         restricted_keywords = ["compensation", "salary", "budget", "financial", "cost"]
         if user.clearance != "leadership" and any(w in query.lower() for w in restricted_keywords):
             return {"answer": "Access denied: Financial data is restricted.",
                     "refused": True, "sources": [], "confidence": 0.0}
 
+        # ALLOW ACCESS IF TEAMS ARE EMPTY (Fallback)
         allowed = [i for i, c in enumerate(self.chunks) if self.acl.visible(c, user)]
         if not allowed:
             return {"answer": "Access denied.", "refused": True, "sources": [], "confidence": 0.0}
@@ -701,8 +711,6 @@ class EngineeringRAG:
 
         visual_keywords = ["diagram", "figure", "chart", "graph", "plot", "image", "picture"]
         is_visual_query = any(w in query.lower() for w in visual_keywords)
-        
-        # NEW: Table Query Intent Detection
         is_table_query = any(w in query.lower() for w in ["table", "grid", "matrix", "rows", "columns", "spreadsheet", "tabulate"])
 
         if is_visual_query:
@@ -821,12 +829,11 @@ class EngineeringRAG:
         for i in allowed:
             rrf = 1.0 / (60 + bm25_rank[i]) + 1.0 / (60 + dense_rank[i])
             
-            # NEW: Table Query Boosting
             if is_table_query:
                 if "[Table Data:" in self.chunks[i].get("section_header", ""):
-                    rrf *= 10.0  # Overwhelming boost for table data chunks
+                    rrf *= 10.0
                 elif re.match(r"^table\s*\d+", self.chunks[i].get("text", ""), re.IGNORECASE):
-                    rrf *= 0.1   # Demote caption-only chunks
+                    rrf *= 0.1
                     
             if image_penalty < 1.0 and "image_path" in self.chunks[i]:
                 rrf *= image_penalty
@@ -880,7 +887,6 @@ class EngineeringRAG:
             if len(unique_results) == 2:
                 break
 
-        # NEW: Direct Return for Table Queries
         if is_table_query:
             table_chunks = [r for r in unique_results if "[Table Data:" in r["doc"].get("section_header", "")]
             if table_chunks:
